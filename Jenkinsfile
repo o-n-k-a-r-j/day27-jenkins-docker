@@ -4,32 +4,61 @@ pipeline {
         label 'docker-mac'
     }
 
+    options {
+        disableConcurrentBuilds()
+    }
+
     stages {
         stage('Check Source') {
             steps {
-                sh 'pwd'
-                sh 'ls'
                 sh 'test -f Dockerfile'
                 sh 'test -f index.html'
+                echo 'Source files are ready'
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Image') {
             steps {
-                sh 'docker build -t day27-site:v1 .'
+                script {
+                    docker.build("day27-site:${env.BUILD_NUMBER}", '.')
+                }
             }
         }
 
-        stage('Run Docker Container') {
+        stage('Test Image') {
             steps {
-                sh 'docker run -d --name day27-site -p 127.0.0.1:8095:80 day27-site:v1'
+                script {
+                    docker.image("day27-site:${env.BUILD_NUMBER}").withRun('-p 127.0.0.1:8096:80') {
+                        sh 'curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8096/ | grep -F "Day 27"'
+                    }
+                }
             }
         }
 
-        stage('Verify Website') {
+        stage('Deploy') {
             steps {
-                sh 'curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8095/'
+                sh 'docker rm -f day27-site 2>/dev/null || true'
+
+                script {
+                    docker.image("day27-site:${env.BUILD_NUMBER}").run('--name day27-site -p 127.0.0.1:8095:80')
+                }
             }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                sh 'curl -fsS --retry 10 --retry-connrefused --retry-delay 1 http://127.0.0.1:8095/ | grep -F "Day 27"'
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Docker CI/CD pipeline completed successfully!'
+        }
+
+        failure {
+            echo 'Pipeline failed. Check the stage and console output.'
         }
     }
 }
